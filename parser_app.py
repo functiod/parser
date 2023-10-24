@@ -1,4 +1,6 @@
+from collections import defaultdict
 import requests
+from requests.exceptions import Timeout, ConnectionError
 from bs4 import BeautifulSoup
 import validators
 import re
@@ -10,19 +12,15 @@ change_series_url: str = 'https://animego.org/anime/series?dubbing=1&provider=19
 requests_iter: int = 0
 link_iter: int = 1
 
-def download_html_page(url: str) -> str | None:
+def download_html_page(url: str) -> str | int:
     try:
         return requests.get(url).content.decode('utf-8')
-    except KeyboardInterrupt:
-        raise
     except:
-        return None
+        return 0
 
 def download_html_video_page(url: str) -> str | None:
     try:
         return requests.get(url, headers={"x-requested-with": "XMLHttpRequest"}).json()
-    except KeyboardInterrupt:
-        raise
     except:
         return None
 
@@ -89,30 +87,24 @@ def extract_video_page_info(html: str) -> list[list]:
 def extract_video_page_info_series(html) -> list:
     video_page_info: list[list] = extract_video_page_info(html)
     page_content: list = video_page_info[requests_iter]
-    links_list: list = video_page_info[link_iter]
-    page_content_series: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find("data-episode"):page_content[i].find('data-episode-description=')].split('\n') for i in range(len(page_content))]))
-    page_content_series = [filter_series_list(sublist) for i, sublist in enumerate(page_content_series)]
-
-    page_content = extract_video_page_info(info)[requests_iter]
-    page_content_series: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find("video-player-bar-series-item d-inline-block br-4 mb-0 video-player__active"):page_content[i].rfind('class="video-player-bar-series-watch text-player-gray px-3 py-2 text-nowrap cursor-pointer  modal-btn modal.ajax"')].split('\n') for i in range(len(page_content))]))
-    page_content_series = [filter_series_list(sublist) for i, sublist in enumerate(page_content_series) if sublist]
-
+    from_page: str = "video-player-bar-series-item d-inline-block br-4 mb-0 video-player__active"
+    to_page: str = 'class="video-player-bar-series-watch text-player-gray px-3 py-2 text-nowrap cursor-pointer  modal-btn modal.ajax"'
+    page_content_series: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find(from_page):page_content[i].rfind(to_page)].split('\n') for i in range(len(page_content))]))
+    page_content_series = [filter_series_list(sublist) for sublist in page_content_series if sublist]
     return page_content_series
 
 def extract_video_page_info_voices(html) -> list:
     video_page_info: list[list] = extract_video_page_info(html)
     page_content: list = video_page_info[requests_iter]
-    # links_list: list = video_page_info[link_iter]
     page_content_voices: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find("data-dubbing"):page_content[i].find('Kodik')].split('\n') for i in range(len(page_content))]))
-    page_content_voices = [filter_voice_list(sublist) for i, sublist in enumerate(page_content_voices)]
+    page_content_voices = [filter_voice_list(sublist) for sublist in page_content_voices]
     return page_content_voices
 
 def extract_video_page_info_player(html) -> list:
     video_page_info: list[list] = extract_video_page_info(html)
     page_content: list = video_page_info[requests_iter]
-    # links_list: list = video_page_info[link_iter]
     page_content_players: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find("video-dubbing"):page_content[i].rfind('video-player-toggle-item-name text-underline-hover')].split('\n') for i in range(len(page_content))]))
-    page_content_players = [np.unique(filter_player_list(sublist)).tolist() for i, sublist in enumerate(page_content_players)]
+    page_content_players = [np.unique(filter_player_list(sublist)).tolist() for sublist in page_content_players]
     return page_content_players
 
 def filter_series_list(buff: list) -> list:
@@ -138,17 +130,19 @@ def filter_voice_list(buff: list) -> list:
 def filter_player_list(buff: list) -> list:
     new_buff: list = buff
     beginning: int = 0
-    good_word: list = ['data-provider', 'data-player', 'data-provide-dubbing']
-    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_word)]
+    # good_word: list = ['data-provider', 'data-player', 'data-provide-dubbing']
+    bad_words: list = ['data-provider']
+    good_words: list = ['data-provide-dubbing', 'data-player']
+    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_words) and not any(string in elem for string in bad_words)]
     result: list = []
     for i, elem in enumerate(new_buff):
         if 'data-provide-dubbing' in elem:
-            result.append(new_buff[i][beginning:new_buff[i].find('>')])
+            result.append(new_buff[i][beginning:new_buff[i].find('>')].replace('-provide-', '-'))
         else:
                 result.append(new_buff[i])
     return result
 
-def delete_extra_info(buff: list) -> list:
+def delete_extra_info(buff: list[list]) -> list:
     my_buff: list = buff
     for i, elem in enumerate(buff):
         my_buff[i] = list(filter(None, elem))
@@ -156,35 +150,55 @@ def delete_extra_info(buff: list) -> list:
             my_buff[i][j] = N.strip()
     return my_buff
 
-def
+def get_content_all_series(main_page_url: str) -> list[list]:
+    url: str = 'https://animego.org/anime/series?&'
+    page_content_series: list[list] = extract_video_page_info_series(download_html_page(main_page_url))
+    anime_list: list = []
+    anime_content: list = []
+    for anime in page_content_series:
+        series_list: list = [url + series for series in anime if series]
+        anime_list.append(series_list)
+    anime_content = [download_html_video_page(series)['content'] for series in anime_list[0]]
+    # for anime in my_anime_list:
+    #     anime_content_series: list = []
+    #     for series in anime:
+    #         if download_html_video_page(series)['content'] is not None:
+    #             anime_content_series: list = download_html_video_page(series)['content']
+    #     anime_content.append(anime_content_series)
+    return anime_content
+
+def get_voices_all_series(anime_content_list: list[list]) -> list[list]:
+    my_anime_content_list: list[list] = anime_content_list
+    anime_content_voices: list = delete_extra_info([my_anime_content_list[i][my_anime_content_list[i].find("video-player-toggle-item d-inline-block text-truncate mb-1 br-3 cursor-pointer"):my_anime_content_list[i].find('class="tab-pane video-player-toggle scroll"')].split('\n') for i in range(len(my_anime_content_list))])
+    anime_content_voices = [filter_voice_list(sublist) for sublist in anime_content_voices if sublist]
+    return anime_content_voices
+
+def get_player_all_series(anime_content_list: list[list]) -> list[list]:
+    my_anime_content_list: list[list] = anime_content_list
+    anime_content_player: list = delete_extra_info(delete_extra_info([my_anime_content_list[i][my_anime_content_list[i].find("video-player-toggle-item text-truncate mb-1 br-3"):my_anime_content_list[i].rfind('class="video-player-toggle-item-name text-underline-hover"')].split('\n') for i in range(len(my_anime_content_list))]))
+    anime_content_player = [filter_player_list(sublist) for sublist in anime_content_player if sublist]
+    return anime_content_player
 
 if __name__ == '__main__':
-    info: str = download_html_page('https://animego.org/anime?sort=r.rating&direction=desc')
-    url: str = 'https://animego.org/anime/series?&'
+    anime_content: list[list] = get_content_all_series('https://animego.org/anime?sort=r.rating&direction=desc')
+    # voices: list = [['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project']]
+    # player: list = [['data-player="//video.sibnet.ru/shell.php?videoid=3543126"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/o8kkoxb3c1owfpoojxiohra9ow"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=3073987"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/oyMH-Da75uLmfesMd9bCk0CjwRV3PQg5xToQZds96wn65Kuo7OrV4b_y8gS5Cdagy0"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3543816"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/za8edq3htouwdjbsmkjb4h8sho"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=3073988"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/oWs5SnCKEkuaGhH5HH9u-8SWKWLvOqPXAZmZgPDK71nseflM0PeRiu3zboi_dUJ9w0"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3544153"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/6juunr5oqfuw3nqycfm1grfj1r"', 'data-dubbing="2"', 'data-player="//vk.com/video_ext.php?oid=-46767995&amp;id=456240556&amp;hash=5d4b490f71f6141b"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3544768"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/gdc44adykzaw3qgq61nceqobgy"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=2684053"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/ogMR2sN5pdJkqPPriFYLyO4fD7C3okrBijp8K9uQJU8pzAHy0Cr8Rit66Vo0BsKZd0"', 'data-dubbing="4"']]
+    voices = get_voices_all_series(anime_content)
+    player = get_player_all_series(anime_content)
+    print(voices)
+    print(player)
+    d_voices: dict = {}
+    d_player: dict = defaultdict(list)
+    for sublist in voices:
+        dub_keys: list = [elem for elem in sublist if 'data-dubbing' in elem]
+        voices_values: list = [voice for voice in sublist if 'data-dubbing' not in voice]
+        d_voices.update(dict(zip(dub_keys, voices_values)))
+    for sublist in player:
+        player_value: list = [voice for voice in sublist if 'data-dubbing' not in voice]
+        dub_keys_2: list = [elem for elem in sublist if 'data-dubbing' in elem]
+    for key, value in zip(dub_keys_2, player_value):
+        d_player[key].append(value)
+    d_player = dict(d_player)
+    result: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
 
-    page_content = extract_video_page_info(info)[requests_iter]
-    page_content_series: list = delete_extra_info(delete_extra_info([page_content[i][page_content[i].find("video-player-bar-series-item d-inline-block br-4 mb-0 video-player__active"):page_content[i].rfind('class="video-player-bar-series-watch text-player-gray px-3 py-2 text-nowrap cursor-pointer  modal-btn modal.ajax"')].split('\n') for i in range(len(page_content))]))
-    page_content_series = [filter_series_list(sublist) for i, sublist in enumerate(page_content_series) if sublist]
-
-    anime_list: list = page_content_series[0]
-    anime_urls: list = [url + data_id for i, data_id in enumerate(anime_list) if data_id]
-    anime_content: list = []
-    tag: str = ''
-    for i in range(len(anime_urls)):
-        tag = download_html_video_page(anime_urls[i])['content']
-        if tag:
-            anime_content.append(tag)
-        else:
-            print(i, download_html_video_page(anime_urls[i])['content'])
-    # anime_content: list = [download_html_video_page(anime_urls[i])['content'] for i in range(len(anime_urls))]
-
-    anime_content_for_voices = anime_content
-    anime_content_for_player = anime_content
-
-    anime_content_voices: list = delete_extra_info([anime_content_for_voices[i][anime_content_for_voices[i].find("video-player-toggle-item d-inline-block text-truncate mb-1 br-3 cursor-pointer"):anime_content_for_voices[i].find('class="tab-pane video-player-toggle scroll"')].split('\n') for i in range(len(anime_content_for_voices))])
-    anime_content_voices = [filter_voice_list(sublist) for i, sublist in enumerate(anime_content_voices) if sublist]
-
-    anime_content_player: list = delete_extra_info(delete_extra_info([anime_content_for_player[i][anime_content_for_player[i].find("video-player-toggle-item text-truncate mb-1 br-3"):anime_content_for_player[i].rfind('class="video-player-toggle-item-name text-underline-hover"')].split('\n') for i in range(len(anime_content_for_player))]))
-    anime_content_player = [filter_player_list(sublist) for i, sublist in enumerate(anime_content_player) if sublist]
-    print(anime_content_voices)
-    print(anime_content_player)
+    print(result)
