@@ -1,6 +1,5 @@
 from collections import defaultdict
 import requests
-from requests.exceptions import Timeout, ConnectionError
 from bs4 import BeautifulSoup
 import validators
 import re
@@ -133,7 +132,7 @@ def filter_player_list(buff: list) -> list:
     # good_word: list = ['data-provider', 'data-player', 'data-provide-dubbing']
     bad_words: list = ['data-provider']
     good_words: list = ['data-provide-dubbing', 'data-player']
-    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_words) and not any(string in elem for string in bad_words)]
+    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_words) and not any(key_word in elem for key_word in bad_words)]
     result: list = []
     for i, elem in enumerate(new_buff):
         if 'data-provide-dubbing' in elem:
@@ -158,7 +157,7 @@ def get_content_all_series(main_page_url: str) -> list[list]:
     for anime in page_content_series:
         series_list: list = [url + series for series in anime if series]
         anime_list.append(series_list)
-    anime_content = [download_html_video_page(series)['content'] for series in anime_list[0]]
+    anime_content = [download_html_video_page(series)['content'] for series in anime_list[2]]
     # for anime in my_anime_list:
     #     anime_content_series: list = []
     #     for series in anime:
@@ -187,8 +186,12 @@ if __name__ == '__main__':
     player = get_player_all_series(anime_content)
     print(voices)
     print(player)
+    voices_list: list = []
+    player_list: list = []
     d_voices: dict = {}
     d_player: dict = defaultdict(list)
+    d_final: list = []
+    result: list = []
     for sublist in voices:
         dub_keys: list = [elem for elem in sublist if 'data-dubbing' in elem]
         voices_values: list = [voice for voice in sublist if 'data-dubbing' not in voice]
@@ -196,9 +199,22 @@ if __name__ == '__main__':
     for sublist in player:
         player_value: list = [voice for voice in sublist if 'data-dubbing' not in voice]
         dub_keys_2: list = [elem for elem in sublist if 'data-dubbing' in elem]
-    for key, value in zip(dub_keys_2, player_value):
-        d_player[key].append(value)
-    d_player = dict(d_player)
-    result: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
-
+        player_list.append([dub_keys_2, player_value])
+    for sublist in player_list:
+        d_player: dict = defaultdict(list)
+        for key, value in zip(sublist[0], sublist[1]):
+            d_player[key].append(value)
+        d_player = dict(d_player)
+        d_final.append(d_player)
+    print(d_voices)
+    print(d_final)
+    for d in d_final:
+        for key in d_voices.keys():
+            if key in d.keys():
+                subresult: dict = {d_voices[key]: d[key]}
+        result.append(subresult)
     print(result)
+
+    # for sublist in d_voices.keys():
+    #     subresult: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
+    # result: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
