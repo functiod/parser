@@ -5,6 +5,8 @@ import validators
 import re
 import numpy as np
 import html
+import pickle
+import os
 
 video_url: str = 'https://animego.org/anime//player?_allow=true'
 change_series_url: str = 'https://animego.org/anime/series?dubbing=1&provider=19&episode=&id='
@@ -80,7 +82,11 @@ def extract_video_page_info(html: str) -> list[list]:
     video_urls: tuple = make_video_url_requests(html)
     requests_list: list = video_urls[requests_iter]
     links_list: list = video_urls[link_iter]
-    page_content: list = [download_html_video_page(requests_list[i])['content'] for i in range(len(requests_list))]
+    page_content: list = []
+    for url in requests_list:
+        response: requests.Response = download_html_video_page(url)
+        if response is not None and 'content' in response:
+            page_content.append(response['content'])
     return page_content, links_list
 
 def extract_video_page_info_series(html) -> list:
@@ -129,16 +135,17 @@ def filter_voice_list(buff: list) -> list:
 def filter_player_list(buff: list) -> list:
     new_buff: list = buff
     beginning: int = 0
-    # good_word: list = ['data-provider', 'data-player', 'data-provide-dubbing']
-    bad_words: list = ['data-provider']
     good_words: list = ['data-provide-dubbing', 'data-player']
-    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_words) and not any(key_word in elem for key_word in bad_words)]
+    new_buff = [elem for elem in new_buff if any(key_word in elem for key_word in good_words)]
     result: list = []
     for i, elem in enumerate(new_buff):
         if 'data-provide-dubbing' in elem:
             result.append(new_buff[i][beginning:new_buff[i].find('>')].replace('-provide-', '-'))
         else:
-                result.append(new_buff[i])
+            match: re.Match[str] = re.search(r'data-player="(.*?)"', elem)
+            if match:
+                data_player_attribute: str = match.group(0)
+                result.append(data_player_attribute)
     return result
 
 def delete_extra_info(buff: list[list]) -> list:
@@ -149,7 +156,7 @@ def delete_extra_info(buff: list[list]) -> list:
             my_buff[i][j] = N.strip()
     return my_buff
 
-def get_content_all_series(main_page_url: str) -> list[list]:
+def get_content_all_series(main_page_url: str) -> list[list[list]]:
     url: str = 'https://animego.org/anime/series?&'
     page_content_series: list[list] = extract_video_page_info_series(download_html_page(main_page_url))
     anime_list: list = []
@@ -157,13 +164,13 @@ def get_content_all_series(main_page_url: str) -> list[list]:
     for anime in page_content_series:
         series_list: list = [url + series for series in anime if series]
         anime_list.append(series_list)
-    anime_content = [download_html_video_page(series)['content'] for series in anime_list[2]]
-    # for anime in my_anime_list:
-    #     anime_content_series: list = []
-    #     for series in anime:
-    #         if download_html_video_page(series)['content'] is not None:
-    #             anime_content_series: list = download_html_video_page(series)['content']
-    #     anime_content.append(anime_content_series)
+    for anime in anime_list:
+        anime_content_series: list = []
+        for series in anime:
+            response: requests.Response = download_html_video_page(series)
+            if response is not None and 'content' in response:
+                anime_content_series.append(response['content'])
+        anime_content.append(anime_content_series)
     return anime_content
 
 def get_voices_all_series(anime_content_list: list[list]) -> list[list]:
@@ -178,43 +185,82 @@ def get_player_all_series(anime_content_list: list[list]) -> list[list]:
     anime_content_player = [filter_player_list(sublist) for sublist in anime_content_player if sublist]
     return anime_content_player
 
+def get_cached_result(main_page_url: str) -> list[list[list]]:
+    cache_file = "cached_result.pkl"
+
+    if os.path.exists(cache_file):
+        # If the cache file exists, load the cached result
+        with open(cache_file, "rb") as f:
+            result = pickle.load(f)
+    else:
+        # If the cache file doesn't exist, call the function and save the result
+        result = get_content_all_series(main_page_url)
+        with open(cache_file, "wb") as f:
+            pickle.dump(result, f)
+
+    return result
+
 if __name__ == '__main__':
-    anime_content: list[list] = get_content_all_series('https://animego.org/anime?sort=r.rating&direction=desc')
-    # voices: list = [['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project'], ['data-dubbing="2"', 'AniLibria', 'data-dubbing="4"', 'SHIZA Project']]
-    # player: list = [['data-player="//video.sibnet.ru/shell.php?videoid=3543126"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/o8kkoxb3c1owfpoojxiohra9ow"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=3073987"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/oyMH-Da75uLmfesMd9bCk0CjwRV3PQg5xToQZds96wn65Kuo7OrV4b_y8gS5Cdagy0"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3543816"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/za8edq3htouwdjbsmkjb4h8sho"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=3073988"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/oWs5SnCKEkuaGhH5HH9u-8SWKWLvOqPXAZmZgPDK71nseflM0PeRiu3zboi_dUJ9w0"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3544153"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/6juunr5oqfuw3nqycfm1grfj1r"', 'data-dubbing="2"', 'data-player="//vk.com/video_ext.php?oid=-46767995&amp;id=456240556&amp;hash=5d4b490f71f6141b"', 'data-dubbing="4"'], ['data-player="//video.sibnet.ru/shell.php?videoid=3544768"', 'data-dubbing="2"', 'data-player="//myvi.top/embed/gdc44adykzaw3qgq61nceqobgy"', 'data-dubbing="2"', 'data-player="//video.sibnet.ru/shell.php?videoid=2684053"', 'data-dubbing="4"', 'data-player="//myvi.top/player/embed/html/ogMR2sN5pdJkqPPriFYLyO4fD7C3okrBijp8K9uQJU8pzAHy0Cr8Rit66Vo0BsKZd0"', 'data-dubbing="4"']]
-    voices = get_voices_all_series(anime_content)
-    player = get_player_all_series(anime_content)
-    print(voices)
-    print(player)
+    anime_content: list[list[list]] = get_cached_result('https://animego.org/anime?sort=r.rating&direction=desc')
+    anime_voices: list = [get_voices_all_series(anime) for anime in anime_content if anime]
+    anime_player: list = [get_player_all_series(anime) for anime in anime_content if anime]
     voices_list: list = []
     player_list: list = []
     d_voices: dict = {}
-    d_player: dict = defaultdict(list)
     d_final: list = []
-    result: list = []
-    for sublist in voices:
-        dub_keys: list = [elem for elem in sublist if 'data-dubbing' in elem]
-        voices_values: list = [voice for voice in sublist if 'data-dubbing' not in voice]
-        d_voices.update(dict(zip(dub_keys, voices_values)))
-    for sublist in player:
-        player_value: list = [voice for voice in sublist if 'data-dubbing' not in voice]
-        dub_keys_2: list = [elem for elem in sublist if 'data-dubbing' in elem]
-        player_list.append([dub_keys_2, player_value])
-    for sublist in player_list:
-        d_player: dict = defaultdict(list)
-        for key, value in zip(sublist[0], sublist[1]):
-            d_player[key].append(value)
-        d_player = dict(d_player)
-        d_final.append(d_player)
-    print(d_voices)
-    print(d_final)
-    for d in d_final:
-        for key in d_voices.keys():
-            if key in d.keys():
-                subresult: dict = {d_voices[key]: d[key]}
-        result.append(subresult)
+    series_result: dict = {}
+    d_player: dict = {}
+    result: dict = {}
+    for i, anime in enumerate(anime_voices):
+        d_sub_voices_for_anime: dict = {}
+        d_sub_voices_for_series: dict = {}
+        for voice_series in anime:
+            dub_keys: list = [elem for elem in voice_series if 'data-dubbing' in elem]
+            voices_values: list = [voice for voice in voice_series if 'data-dubbing' not in voice]
+            d_sub_voices_for_series.update(dict(zip(dub_keys, voices_values)))
+        d_voices[i] = d_sub_voices_for_series
+
+    for anime in anime_player:
+        player_sub_list: list = []
+        for player_series in anime:
+            dub_keys_2: list = [elem for elem in player_series if 'data-dubbing' in elem]
+            player_value: list = [voice for voice in player_series if 'data-dubbing' not in voice]
+            player_sub_list.append([dub_keys_2, player_value])
+        player_list.append(player_sub_list)
+
+    for i, anime in enumerate(player_list):
+        d_series_player: list = []
+        for series in anime:
+            d_sub_player: dict = defaultdict(list)
+            for key, value in zip(series[0], series[1]):
+                d_sub_player[key].append(value)
+            d_sub_player = dict(d_sub_player)
+            d_series_player.append(d_sub_player)
+        d_player[i] = d_series_player
+
+'data-player="//aniboom.one/embed/WlmXYrydK0P?episode=1&amp;translation=2"'
+'data-player="//aniboom.one/embed/WlmXYrydK0P?episode=2&amp;translation=2"'
+    for d_num, d_final in d_player.items():
+        subvoices = d_voices.get(d_num, {})
+        series_result: dict = {}
+        for i, d_sub_final in enumerate(d_final):
+            subresult: dict = {}
+            for key in subvoices.keys():
+                if key in d_sub_final.keys():
+                    subresult[subvoices[key]] = d_sub_final[key]
+            series_result[i] = subresult
+        result[d_num] = series_result
     print(result)
 
-    # for sublist in d_voices.keys():
-    #     subresult: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
-    # result: dict = {d_voices[key]: d_player[key] for key in d_voices.keys()}
+    # for anime_player, anime_voice in zip(d_player.values(), d_voices.values()):
+    #     series_list: list = []
+    #     for d in anime_player:
+    #         sub_dict: dict = {}
+    #         for d_voice in anime_voices:
+    #             for key in d_voice.keys():
+    #                 if key in d.keys():
+    #                     sub_result: dict = {d_voice[key]: d[key]}
+    #                     sub_dict.update(sub_result)
+    #         series_list.append(sub_dict)
+    #     result[i] = series_list
+    print(result)
