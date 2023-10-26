@@ -1,13 +1,15 @@
 from collections import defaultdict
 import requests
 from bs4 import BeautifulSoup
+import psycopg2
 import validators
 import re
 import numpy as np
-import html
+import json
 import pickle
 import os
 
+new_lage_url: str = 'https://animego.org/anime?sort=a.startDate&direction=asc&type=animes&page=2'
 video_url: str = 'https://animego.org/anime//player?_allow=true'
 change_series_url: str = 'https://animego.org/anime/series?dubbing=1&provider=19&episode=&id='
 requests_iter: int = 0
@@ -197,70 +199,29 @@ def get_cached_result(main_page_url: str) -> list[list[list]]:
             pickle.dump(result, f)
     return result
 
-def voices() -> dict:
-    for i, anime in enumerate(anime_voices):
-    d_sub_voices_for_anime: dict = {}
-    d_sub_voices_for_series: dict = {}
-    for voice_series in anime:
-        dub_keys: list = [elem for elem in voice_series if 'data-dubbing' in elem]
-        voices_values: list = [voice for voice in voice_series if 'data-dubbing' not in voice]
-        d_sub_voices_for_series.update(dict(zip(dub_keys, voices_values)))
-    d_voices[i] = d_sub_voices_for_series
-
-def players() -> list:
-    for anime in anime_player:
-        player_sub_list: list = []
-        for player_series in anime:
-            dub_keys_2: list = [elem for elem in player_series if 'data-dubbing' in elem]
-            player_value: list = [voice for voice in player_series if 'data-dubbing' not in voice]
-            player_sub_list.append([dub_keys_2, player_value])
-        player_list.append(player_sub_list)
-
-def dict_players() -> dict:
-    for i, anime in enumerate(player_list):
-        d_series_player: list = []
-        for series in anime:
-            d_sub_player: dict = defaultdict(list)
-            for key, value in zip(series[0], series[1]):
-                d_sub_player[key].append(value)
-            d_sub_player = dict(d_sub_player)
-            d_series_player.append(d_sub_player)
-        d_player[i] = d_series_player
-
-def final_dict() -> dict:
-    for d_num, d_final in d_player.items():
-        subvoices = d_voices.get(d_num, {})
-        series_result: dict = {}
-        for i, d_sub_final in enumerate(d_final):
-            subresult: dict = {}
-            for key in subvoices.keys():
-                if key in d_sub_final.keys():
-                    subresult[subvoices[key]] = d_sub_final[key]
-            series_result[i] = subresult
-        result[list(titles_dict[d_num].values())[0]] = series_result
-
-if __name__ == '__main__':
-    info: list = get_cached_result('https://animego.org/anime?sort=r.rating&direction=desc')
+def prepare_anime_buffer(url: str) -> tuple:
+    info: list = get_cached_result(url)
     titles_dict: dict = info[1]
     anime_content: list[list[list]] = info[requests_iter]
-    anime_voices: list = [get_voices_all_series(anime) for anime in anime_content if anime]
-    anime_player: list = [get_player_all_series(anime) for anime in anime_content if anime]
-    voices_list: list = []
-    player_list: list = []
+    return anime_content, titles_dict
+
+def voices(anime_content: list) -> dict:
     d_voices: dict = {}
-    d_final: list = []
-    series_result: dict = {}
-    d_player: dict = {}
-    result: dict = {}
+    my_anime_content: list = anime_content
+    anime_voices: list = [get_voices_all_series(anime) for anime in my_anime_content if anime]
     for i, anime in enumerate(anime_voices):
-        d_sub_voices_for_anime: dict = {}
         d_sub_voices_for_series: dict = {}
         for voice_series in anime:
             dub_keys: list = [elem for elem in voice_series if 'data-dubbing' in elem]
             voices_values: list = [voice for voice in voice_series if 'data-dubbing' not in voice]
             d_sub_voices_for_series.update(dict(zip(dub_keys, voices_values)))
         d_voices[i] = d_sub_voices_for_series
+    return d_voices
 
+def players(anime_content: list) -> list:
+    player_list: list = []
+    my_anime_content: list = anime_content
+    anime_player: list = [get_player_all_series(anime) for anime in my_anime_content if anime]
     for anime in anime_player:
         player_sub_list: list = []
         for player_series in anime:
@@ -268,8 +229,13 @@ if __name__ == '__main__':
             player_value: list = [voice for voice in player_series if 'data-dubbing' not in voice]
             player_sub_list.append([dub_keys_2, player_value])
         player_list.append(player_sub_list)
+    return player_list
 
-    for i, anime in enumerate(player_list):
+def dict_players(player_list: list) -> dict:
+    d_player: dict = {}
+    my_player_list: list = player_list
+    new_player_list: list = players(my_player_list)
+    for i, anime in enumerate(new_player_list):
         d_series_player: list = []
         for series in anime:
             d_sub_player: dict = defaultdict(list)
@@ -278,15 +244,52 @@ if __name__ == '__main__':
             d_sub_player = dict(d_sub_player)
             d_series_player.append(d_sub_player)
         d_player[i] = d_series_player
+    return d_player
 
+def final_dict(url: str) -> dict:
+    anime_buffer: list = prepare_anime_buffer(url)
+    d_player: dict = dict_players(anime_buffer[requests_iter])
+    d_voices: dict = voices(anime_buffer[requests_iter])
+    d_titles: dict = anime_buffer[1]
+    result: dict = {}
     for d_num, d_final in d_player.items():
-        subvoices = d_voices.get(d_num, {})
+        subvoices: dict = d_voices.get(d_num, {})
         series_result: dict = {}
         for i, d_sub_final in enumerate(d_final):
             subresult: dict = {}
             for key in subvoices.keys():
                 if key in d_sub_final.keys():
                     subresult[subvoices[key]] = d_sub_final[key]
-            series_result[i] = subresult
-        result[list(titles_dict[d_num].values())[0]] = series_result
-    print(result)
+            series_result[i+1] = subresult
+        result[list(d_titles[d_num].values())[0]] = series_result
+    return result
+
+if __name__ == '__main__':
+    json_string: str = json.dumps(final_dict('https://animego.org/anime?sort=r.rating&direction=desc'), ensure_ascii=False)
+    db_params: dict[str, str] = {
+    "dbname": "animego",
+    "user": "postgres",
+    "password": "01012002",
+    "host": "localhost",
+    "port": "5432"
+}
+
+    conn = psycopg2.connect(**db_params)
+    cur = conn.cursor()
+    data = json.loads(json_string)
+    cur.execute('CREATE TABLE IF NOT EXISTS anime (id SERIAL PRIMARY KEY, name TEXT);')
+    cur.execute('CREATE TABLE IF NOT EXISTS episodes (id SERIAL PRIMARY KEY, anime_name TEXT, episode_number INT, dub TEXT, link TEXT);')
+    for anime_name in data:
+        cur.execute('INSERT INTO anime (name) VALUES (%s) RETURNING id;', (anime_name,))
+        anime_id = cur.fetchone()[0]
+
+        for episode_number, dub_info in data[anime_name].items():
+            for dub, links in dub_info.items():
+                for link in links:
+                    cur.execute('INSERT INTO episodes (anime_name, episode_number, dub, link) VALUES (%s, %s, %s, %s);', (anime_name, episode_number, dub, link))
+
+    conn.commit()
+
+    # Закрытие соединения
+    cur.close()
+    conn.close()
