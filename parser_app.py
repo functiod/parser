@@ -61,8 +61,10 @@ def extract_info_from_html(url: str) -> dict:
         title = title_element.find('h1').get_text()
     else:
         title = "Название не найдено"
+    img_element: str = parser.find('div', class_='anime-poster position-relative cursor-pointer').find('img')['src']
     param_dict: dict = {}
     param_dict['Название'] = title
+    param_dict['Обложка'] = img_element
     return param_dict
 
 def get_url_last_numbers(html: str) -> int:
@@ -261,35 +263,38 @@ def final_dict(url: str) -> dict:
                 if key in d_sub_final.keys():
                     subresult[subvoices[key]] = d_sub_final[key]
             series_result[i+1] = subresult
-        result[list(d_titles[d_num].values())[0]] = series_result
+        result[d_titles[d_num]['Название']] = [series_result, d_titles[d_num]['Обложка']]
     return result
 
 if __name__ == '__main__':
     json_string: str = json.dumps(final_dict('https://animego.org/anime?sort=r.rating&direction=desc'), ensure_ascii=False)
-    db_params: dict[str, str] = {
-    "dbname": "animego",
-    "user": "postgres",
-    "password": "01012002",
-    "host": "localhost",
-    "port": "5432"
-}
+    print(json_string)
+    # print(extract_info_from_html(download_html_page('https://animego.org/anime/masterskaya-kotenka-1388')))
 
-    conn = psycopg2.connect(**db_params)
-    cur = conn.cursor()
-    data = json.loads(json_string)
-    cur.execute('CREATE TABLE IF NOT EXISTS anime (id SERIAL PRIMARY KEY, name TEXT);')
-    cur.execute('CREATE TABLE IF NOT EXISTS episodes (id SERIAL PRIMARY KEY, anime_name TEXT, episode_number INT, dub TEXT, link TEXT);')
-    for anime_name in data:
-        cur.execute('INSERT INTO anime (name) VALUES (%s) RETURNING id;', (anime_name,))
-        anime_id = cur.fetchone()[0]
+#     db_params: dict[str, str] = {
+#     "dbname": "animego",
+#     "user": "postgres",
+#     "password": "01012002",
+#     "host": "localhost",
+#     "port": "5432"
+# }
 
-        for episode_number, dub_info in data[anime_name].items():
-            for dub, links in dub_info.items():
-                for link in links:
-                    cur.execute('INSERT INTO episodes (anime_name, episode_number, dub, link) VALUES (%s, %s, %s, %s);', (anime_name, episode_number, dub, link))
+#     conn = psycopg2.connect(**db_params)
+#     cur = conn.cursor()
+#     data = json.loads(json_string)
+#     cur.execute('CREATE TABLE IF NOT EXISTS anime (id SERIAL PRIMARY KEY, name TEXT);')
+#     cur.execute('CREATE TABLE IF NOT EXISTS episodes (id SERIAL PRIMARY KEY, anime_name TEXT, episode_number INT, dub TEXT, link TEXT);')
+#     for anime_name in data:
+#         cur.execute('INSERT INTO anime (name) VALUES (%s) RETURNING id;', (anime_name,))
+#         anime_id = cur.fetchone()[0]
 
-    conn.commit()
+#         for episode_number, dub_info in data[anime_name].items():
+#             for dub, links in dub_info.items():
+#                 for link in links:
+#                     cur.execute('INSERT INTO episodes (anime_name, episode_number, dub, link) VALUES (%s, %s, %s, %s);', (anime_name, episode_number, dub, link))
 
-    # Закрытие соединения
-    cur.close()
-    conn.close()
+#     conn.commit()
+
+#     # Закрытие соединения
+#     cur.close()
+#     conn.close()
