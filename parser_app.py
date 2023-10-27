@@ -9,7 +9,7 @@ import json
 import pickle
 import os
 
-new_lage_url: str = 'https://animego.org/anime?sort=a.startDate&direction=asc&type=animes&page=2'
+new_page_url: str = 'https://animego.org/anime?sort=a.startDate&direction=asc&type=animes&page=2'
 video_url: str = 'https://animego.org/anime//player?_allow=true'
 change_series_url: str = 'https://animego.org/anime/series?dubbing=1&provider=19&episode=&id='
 requests_iter: int = 0
@@ -20,7 +20,7 @@ def download_html_page(url: str) -> str | int:
     try:
         return requests.get(url).content.decode('utf-8')
     except:
-        return 0
+        return None
 
 def download_html_video_page(url: str) -> str | None:
     try:
@@ -56,15 +56,19 @@ def parse_links_to_movies(html: str) -> list:
 def extract_info_from_html(url: str) -> dict:
     parser = BeautifulSoup(url, features="html.parser")
     title_element: str = parser.find('div', class_ ='anime-title')
-    title: str
     if title_element:
-        title = title_element.find('h1').get_text()
+        title: str = title_element.find('h1').get_text()
     else:
-        title = "Название не найдено"
+        title: str = "Название не найдено"
     img_element: str = parser.find('div', class_='anime-poster position-relative cursor-pointer').find('img')['src']
+    anime_info: str = parser.find('div', class_='anime-info').find('dl')
+    dt_list: list = ["".join(elem.get_text().split()) for elem in anime_info.find_all('dt')]
+    dd_list: list = ["".join(elem.get_text().split()) for elem in anime_info.find_all('dd')]
+    anime_info_dict: dict = {key: value for (key, value) in zip(dt_list, dd_list)}
     param_dict: dict = {}
     param_dict['Название'] = title
     param_dict['Обложка'] = img_element
+    param_dict['Информация'] = anime_info_dict
     return param_dict
 
 def get_url_last_numbers(html: str) -> int:
@@ -263,38 +267,47 @@ def final_dict(url: str) -> dict:
                 if key in d_sub_final.keys():
                     subresult[subvoices[key]] = d_sub_final[key]
             series_result[i+1] = subresult
-        result[d_titles[d_num]['Название']] = [series_result, d_titles[d_num]['Обложка']]
+        result[d_titles[d_num]['Название']] = [series_result, d_titles[d_num]]
     return result
 
+# def all_pages(url: str) -> dict:
+#     page_url: str = 'https://animego.org/anime?sort=a.startDate&direction=asc&type=animes&'
+#     i: int = 1
+#     page_number: str = 'page='+i
+#     new_page_url: str = page_url+page_number
+#     while download_html_page(new_page_url) is not None:
+#         result: dict = final_dict(new_page_url)
+#         page_number: str = 'page='+i
+#         new_page_url: str = page_url+page_number
+#         i += 1
+
 if __name__ == '__main__':
-    json_string: str = json.dumps(final_dict('https://animego.org/anime?sort=r.rating&direction=desc'), ensure_ascii=False)
-    print(json_string)
-    # print(extract_info_from_html(download_html_page('https://animego.org/anime/masterskaya-kotenka-1388')))
+    json_string: str = json.dumps(final_dict('https://animego.org/anime?sort=a.startDate&direction=asc&type=animes&'), ensure_ascii=False)
 
-#     db_params: dict[str, str] = {
-#     "dbname": "animego",
-#     "user": "postgres",
-#     "password": "01012002",
-#     "host": "localhost",
-#     "port": "5432"
-# }
+    db_params: dict[str, str] = {
+    "dbname": "animego",
+    "user": "postgres",
+    "password": "01012002",
+    "host": "localhost",
+    "port": "5432"
+}
+    data = json.loads(json_string)
+    for i, anime_name in enumerate(data):
+        print(i, anime_name, data[anime_name][-1]['Название'], data[anime_name][-1]['Информация'])
+    # conn = psycopg2.connect(**db_params)
+    # cur = conn.cursor()
+    # data = json.loads(json_string)
+    # for i, anime_name in enumerate(data):
+    #     cur.execute('INSERT INTO anime (id, anime_name, anime_jpg_link) VALUES (%s, %s, %s)', (i, anime_name,))
+    #     anime_id = cur.fetchone()[0]
 
-#     conn = psycopg2.connect(**db_params)
-#     cur = conn.cursor()
-#     data = json.loads(json_string)
-#     cur.execute('CREATE TABLE IF NOT EXISTS anime (id SERIAL PRIMARY KEY, name TEXT);')
-#     cur.execute('CREATE TABLE IF NOT EXISTS episodes (id SERIAL PRIMARY KEY, anime_name TEXT, episode_number INT, dub TEXT, link TEXT);')
-#     for anime_name in data:
-#         cur.execute('INSERT INTO anime (name) VALUES (%s) RETURNING id;', (anime_name,))
-#         anime_id = cur.fetchone()[0]
+    #     for episode_number, dub_info in data[anime_name].items():
+    #         for dub, links in dub_info.items():
+    #             for link in links:
+    #                 cur.execute('INSERT INTO episodes (anime_name, episode_number, dub, link) VALUES (%s, %s, %s, %s);', (anime_name, episode_number, dub, link))
 
-#         for episode_number, dub_info in data[anime_name].items():
-#             for dub, links in dub_info.items():
-#                 for link in links:
-#                     cur.execute('INSERT INTO episodes (anime_name, episode_number, dub, link) VALUES (%s, %s, %s, %s);', (anime_name, episode_number, dub, link))
+    # conn.commit()
 
-#     conn.commit()
-
-#     # Закрытие соединения
-#     cur.close()
-#     conn.close()
+    # # Закрытие соединения
+    # cur.close()
+    # conn.close()
