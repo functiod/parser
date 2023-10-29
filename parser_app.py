@@ -400,6 +400,6 @@ def update_thread() -> None:
 
 if __name__ == '__main__':
     # Парсинг всех аниме на сайте
-    # parse_all_pages()
+    parse_all_pages()
     # Парсинг ежедневных обновлений
     update_thread()
